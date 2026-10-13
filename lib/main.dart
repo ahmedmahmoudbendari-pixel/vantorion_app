@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const VantorionApp());
 }
 
@@ -20,13 +22,144 @@ class VantorionApp extends StatelessWidget {
         cardColor: const Color(0xFF1E1E2C),
         useMaterial3: true,
       ),
-      home: const MainNavigationScreen(),
+      home: const AuthCheckScreen(),
+    );
+  }
+}
+
+class AuthCheckScreen extends StatefulWidget {
+  const AuthCheckScreen({super.key});
+
+  @override
+  State<AuthCheckScreen> createState() => _AuthCheckScreenState();
+}
+
+class _AuthCheckScreenState extends State<AuthCheckScreen> {
+  bool _isLoading = true;
+  String? _userEmail;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkLogin();
+  }
+
+  Future<void> _checkLogin() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedEmail = prefs.getString('user_email');
+    setState(() {
+      _userEmail = savedEmail;
+      _isLoading = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator(color: Colors.deepPurpleAccent)),
+      );
+    }
+    return _userEmail == null ? const LoginScreen() : MainNavigationScreen(userEmail: _userEmail!);
+  }
+}
+
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final _emailController = TextEditingController();
+  final _passController = TextEditingController();
+  bool _isRegistering = false;
+
+  Future<void> _handleAuth() async {
+    final email = _emailController.text.trim();
+    final password = _passController.text.trim();
+
+    if (email.isEmpty || password.length < 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('يرجى كتابة بريد صحيح وكلمة سر 6 أرقام على الأقل')),
+      );
+      return;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('user_email', email);
+
+    if (mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => MainNavigationScreen(userEmail: email)),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Directionality(
+        textDirection: TextDirection.rtl,
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Icon(Icons.bolt, size: 70, color: Colors.deepPurpleAccent),
+              const SizedBox(height: 10),
+              const Text('منصة VANTORION', textAlign: TextAlign.center, style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 5),
+              const Text('سجل حسابك للبدء في كسب الأرصدة والسحب الفوري', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey, fontSize: 13)),
+              const SizedBox(height: 30),
+              TextField(
+                controller: _emailController,
+                keyboardType: TextInputType.emailAddress,
+                decoration: InputDecoration(
+                  labelText: 'البريد الإلكتروني',
+                  filled: true,
+                  fillColor: const Color(0xFF1E1E2C),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+              const SizedBox(height: 15),
+              TextField(
+                controller: _passController,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: 'كلمة السر',
+                  filled: true,
+                  fillColor: const Color(0xFF1E1E2C),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+              const SizedBox(height: 25),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.deepPurple,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                onPressed: _handleAuth,
+                child: Text(_isRegistering ? 'إنشاء حساب جديد' : 'تسجيل الدخول', style: const TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold)),
+              ),
+              TextButton(
+                child: Text(_isRegistering ? 'لديك حساب بالفعل؟ سجل دخولك' : 'حساب جديد؟ انقر هنا للإنشاء', style: const TextStyle(color: Colors.grey)),
+              )
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
 
 class MainNavigationScreen extends StatefulWidget {
-  const MainNavigationScreen({super.key});
+  final String userEmail;
+  const MainNavigationScreen({super.key, required this.userEmail});
 
   @override
   State<MainNavigationScreen> createState() => _MainNavigationScreenState();
@@ -34,37 +167,61 @@ class MainNavigationScreen extends StatefulWidget {
 
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _currentIndex = 0;
-  double _balance = 45.0;
-  double _pendingBalance = 15.0;
-  int _completedTasks = 6;
+  double _balance = 0.0;
+  int _completedTasks = 0;
 
-  void _addBalance(double amount) {
+  @override
+  void initState() {
+    super.initState();
+    _loadUserData();
+  }
+
+  Future<void> _loadUserData() async {
+    final prefs = await SharedPreferences.getInstance();
     setState(() {
-      _balance += amount;
-      _completedTasks += 1;
+      _balance = prefs.getDouble('balance_${widget.userEmail}') ?? 0.0;
+      _completedTasks = prefs.getInt('tasks_${widget.userEmail}') ?? 0;
     });
   }
 
-  void _withdraw(double amount) {
+  Future<void> _updateBalance(double addedAmount) async {
+    final prefs = await SharedPreferences.getInstance();
+    final newBal = _balance + addedAmount;
+    final newTasks = _completedTasks + 1;
+    await prefs.setDouble('balance_${widget.userEmail}', newBal);
+    await prefs.setInt('tasks_${widget.userEmail}', newTasks);
+
     setState(() {
-      _balance -= amount;
+      _balance = newBal;
+      _completedTasks = newTasks;
+    });
+  }
+
+  Future<void> _deductBalance(double amount) async {
+    final prefs = await SharedPreferences.getInstance();
+    final newBal = _balance - amount;
+    await prefs.setDouble('balance_${widget.userEmail}', newBal);
+
+    setState(() {
+      _balance = newBal;
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final List<Widget> screens = [
+    final screens = [
       HomeScreen(
+        userEmail: widget.userEmail,
         balance: _balance,
-        pendingBalance: _pendingBalance,
         completedTasks: _completedTasks,
         onNavigateToTasks: () => setState(() => _currentIndex = 1),
         onNavigateToWithdraw: () => setState(() => _currentIndex = 2),
       ),
-      TasksScreen(onTaskCompleted: _addBalance),
+      TasksScreen(onTaskCompleted: _updateBalance),
       WithdrawScreen(
+        userEmail: widget.userEmail,
         balance: _balance,
-        onWithdrawSuccess: _withdraw,
+        onWithdrawSuccess: _deductBalance,
       ),
       const HistoryScreen(),
     ];
@@ -72,10 +229,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     return Scaffold(
       body: Directionality(
         textDirection: TextDirection.rtl,
-        child: IndexedStack(
-          index: _currentIndex,
-          children: screens,
-        ),
+        child: IndexedStack(index: _currentIndex, children: screens),
       ),
       bottomNavigationBar: Directionality(
         textDirection: TextDirection.rtl,
@@ -98,18 +252,17 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   }
 }
 
-// --- الرئيسية والرصيد ---
 class HomeScreen extends StatelessWidget {
+  final String userEmail;
   final double balance;
-  final double pendingBalance;
   final int completedTasks;
   final VoidCallback onNavigateToTasks;
   final VoidCallback onNavigateToWithdraw;
 
   const HomeScreen({
     super.key,
+    required this.userEmail,
     required this.balance,
-    required this.pendingBalance,
     required this.completedTasks,
     required this.onNavigateToTasks,
     required this.onNavigateToWithdraw,
@@ -119,16 +272,28 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('فانتوريون | Vantorion', style: TextStyle(fontWeight: FontWeight.bold)),
-        centerTitle: true,
+        title: const Text('فانتوريون | Vantorion'),
         backgroundColor: const Color(0xFF1E1E2C),
-        elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.redAccent),
+            onPressed: () async {
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.remove('user_email');
+              if (context.mounted) {
+                Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const LoginScreen()));
+              }
+            },
+          )
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            Text('مرحباً، $userEmail', style: const TextStyle(color: Colors.grey, fontSize: 13)),
+            const SizedBox(height: 10),
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
@@ -138,31 +303,19 @@ class HomeScreen extends StatelessWidget {
                   end: Alignment.bottomRight,
                 ),
                 borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(color: Colors.deepPurple.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 5)),
-                ],
               ),
               child: Column(
                 children: [
-                  const Text('الرصيد المتاح للسحب', style: TextStyle(fontSize: 16, color: Colors.white70)),
+                  const Text('الرصيد المتاح للسحب', style: TextStyle(fontSize: 14, color: Colors.white70)),
                   const SizedBox(height: 8),
                   Text('${balance.toStringAsFixed(2)} ج.م', style: const TextStyle(fontSize: 34, fontWeight: FontWeight.bold, color: Colors.white)),
                   const Divider(color: Colors.white24, height: 25),
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Column(
-                        children: [
-                          const Text('رصيد معلق', style: TextStyle(fontSize: 12, color: Colors.white70)),
-                          Text('${pendingBalance.toStringAsFixed(2)} ج.م', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.orangeAccent)),
-                        ],
-                      ),
-                      Column(
-                        children: [
-                          const Text('المهام المكتملة', style: TextStyle(fontSize: 12, color: Colors.white70)),
-                          Text('$completedTasks مهمة', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.greenAccent)),
-                        ],
-                      ),
+                      const Icon(Icons.check_circle, color: Colors.greenAccent, size: 18),
+                      const SizedBox(width: 5),
+                      Text('إجمالي المهام المكتملة: $completedTasks', style: const TextStyle(color: Colors.white70, fontSize: 14)),
                     ],
                   )
                 ],
@@ -173,39 +326,22 @@ class HomeScreen extends StatelessWidget {
               children: [
                 Expanded(
                   child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      backgroundColor: Colors.green,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green, padding: const EdgeInsets.symmetric(vertical: 14)),
                     onPressed: onNavigateToTasks,
                     icon: const Icon(Icons.add_task, color: Colors.white),
-                    label: const Text('بدء مهمة', style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold)),
+                    label: const Text('بدء مهمة', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      backgroundColor: Colors.deepPurpleAccent,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurpleAccent, padding: const EdgeInsets.symmetric(vertical: 14)),
                     onPressed: onNavigateToWithdraw,
                     icon: const Icon(Icons.output, color: Colors.white),
-                    label: const Text('طلب سحب', style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold)),
+                    label: const Text('طلب سحب', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                   ),
                 ),
               ],
-            ),
-            const SizedBox(height: 25),
-            Card(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              child: const ListTile(
-                leading: Icon(Icons.notifications_active, color: Colors.amber),
-                title: Text('إشعار هام', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                subtitle: Text('الحد الأدنى للسحب هو 50 ج.م على فودافون كاش والمحافظ الإلكترونية.'),
-              ),
             ),
           ],
         ),
@@ -214,25 +350,20 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
-// --- قسم المهام ---
 class TasksScreen extends StatelessWidget {
   final Function(double) onTaskCompleted;
-
   const TasksScreen({super.key, required this.onTaskCompleted});
 
   @override
   Widget build(BuildContext context) {
     final tasks = [
-      {'title': 'إنشاء حساب Gmail جديد', 'reward': 7.5, 'desc': 'قم بإنشاء حساب جوجل وتوفير البيانات المطلوبة.'},
-      {'title': 'إنشاء حساب Outlook / Hotmail', 'reward': 5.0, 'desc': 'قم بإنشاء حساب مايكروسوفت وتسليم الكود.'},
-      {'title': 'الاشتراك في قناة التليجرام', 'reward': 2.0, 'desc': 'انضم للقناة وارفق يوزر حسابك للتأكيد.'},
+      {'title': 'إنشاء حساب Gmail جديد', 'reward': 7.5, 'desc': 'قم بإنشاء حساب جوجل بالبيانات المحددة وتسليمه.'},
+      {'title': 'إنشاء حساب Outlook جديد', 'reward': 5.0, 'desc': 'قم بإنشاء حساب مايكروسوفت واضغط تأكيد.'},
+      {'title': 'الانضمام إلى قناة التليجرام', 'reward': 2.0, 'desc': 'اشترك بالقناة وارفق اليوزر للتأكيد.'},
     ];
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('قائمة المهام المتاحة'),
-        backgroundColor: const Color(0xFF1E1E2C),
-      ),
+      appBar: AppBar(title: const Text('المهام المتاحة'), backgroundColor: const Color(0xFF1E1E2C)),
       body: ListView.builder(
         padding: const EdgeInsets.all(16),
         itemCount: tasks.length,
@@ -240,37 +371,18 @@ class TasksScreen extends StatelessWidget {
           final task = tasks[index];
           return Card(
             margin: const EdgeInsets.only(bottom: 12),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(task['title'] as String, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(color: Colors.green.withOpacity(0.2), borderRadius: BorderRadius.circular(8)),
-                        child: Text('+${task['reward']} ج.م', style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold)),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(task['desc'] as String, style: const TextStyle(color: Colors.grey, fontSize: 13)),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple),
-                      onPressed: () {
-                        _showTaskDetailsDialog(context, task['title'] as String, task['reward'] as double);
-                      },
-                      child: const Text('تنفيذ المهمة', style: TextStyle(color: Colors.white)),
-                    ),
-                  )
-                ],
+            child: ListTile(
+              title: Text(task['title'] as String, style: const TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: Text(task['desc'] as String, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+              trailing: ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple),
+                onPressed: () {
+                  onTaskCompleted(task['reward'] as double);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('تم إنهاء المهمة وإضافة ${task["reward"]} ج.م إلى حسابك!')),
+                  );
+                },
+                child: Text('+${task["reward"]} ج.م', style: const TextStyle(color: Colors.greenAccent)),
               ),
             ),
           );
@@ -278,90 +390,14 @@ class TasksScreen extends StatelessWidget {
       ),
     );
   }
-
-  void _showTaskDetailsDialog(BuildContext context, String title, double reward) {
-    final emailController = TextEditingController(text: "vantorion_${DateTime.now().millisecondsSinceEpoch ~/ 1000}@gmail.com");
-    final passController = TextEditingController(text: "VantorionPass2026");
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: const Color(0xFF1E1E2C),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-            top: 20, left: 20, right: 20,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 10),
-              const Text('قم بإدخال البيانات التالية أثناء إنشاء الحساب:', style: TextStyle(color: Colors.grey)),
-              const SizedBox(height: 15),
-              _buildCopyTile(context, 'البريد الإلكتروني:', emailController.text),
-              _buildCopyTile(context, 'كلمة السر:', passController.text),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green, padding: const EdgeInsets.symmetric(vertical: 14)),
-                  onPressed: () {
-                    onTaskCompleted(reward);
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('تم إرسال مهمة ($title) للمراجعة وإضافة $reward ج.م!')),
-                    );
-                  },
-                  child: const Text('✅ تأكيد وإرسال المهمة', style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold)),
-                ),
-              )
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildCopyTile(BuildContext context, String label, String value) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(color: const Color(0xFF121212), borderRadius: BorderRadius.circular(8)),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-              Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-            ],
-          ),
-          IconButton(
-            icon: const Icon(Icons.copy, color: Colors.deepPurpleAccent, size: 20),
-            onPressed: () {
-              Clipboard.setData(ClipboardData(text: value));
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تم نسخ $label')));
-            },
-          )
-        ],
-      ),
-    );
-  }
 }
 
-// --- قسم السحب ---
 class WithdrawScreen extends StatefulWidget {
+  final String userEmail;
   final double balance;
   final Function(double) onWithdrawSuccess;
 
-  const WithdrawScreen({super.key, required this.balance, required this.onWithdrawSuccess});
+  const WithdrawScreen({super.key, required this.userEmail, required this.balance, required this.onWithdrawSuccess});
 
   @override
   State<WithdrawScreen> createState() => _WithdrawScreenState();
@@ -369,118 +405,23 @@ class WithdrawScreen extends StatefulWidget {
 
 class _WithdrawScreenState extends State<WithdrawScreen> {
   String _selectedMethod = 'فودافون كاش';
-  final TextEditingController _numberController = TextEditingController();
-  final TextEditingController _amountController = TextEditingController();
+  final _numberController = TextEditingController();
+  final _amountController = TextEditingController();
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('قسم طلب السحب'),
-        backgroundColor: const Color(0xFF1E1E2C),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Card(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text('رصيدك المتاح:', style: TextStyle(fontSize: 16)),
-                    Text('${widget.balance.toStringAsFixed(2)} ج.م', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.greenAccent)),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            const Text('اختر طريقة السحب:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 10),
-
-            DropdownButtonFormField<String>(
-              value: _selectedMethod,
-              decoration: InputDecoration(
-                filled: true,
-                fillColor: const Color(0xFF1E1E2C),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              dropdownColor: const Color(0xFF1E1E2C),
-              items: ['فودافون كاش', 'اتصالات كاش', 'أورانج كاش', 'WE Pay', 'Binance USDT'].map((method) {
-                return DropdownMenuItem(value: method, child: Text(method));
-              }).toList(),
-              onChanged: (val) {
-                if (val != null) setState(() => _selectedMethod = val);
-              },
-            ),
-            const SizedBox(height: 15),
-
-            const Text('رقم المحفظة / العنوان:', style: TextStyle(fontSize: 14)),
-            const SizedBox(height: 5),
-            TextField(
-              controller: _numberController,
-              keyboardType: TextInputType.phone,
-              decoration: InputDecoration(
-                hintText: 'ادخل رقم المحفظة هنا',
-                filled: true,
-                fillColor: const Color(0xFF1E1E2C),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-            const SizedBox(height: 15),
-
-            const Text('المبلغ المطلوب (ج.م):', style: TextStyle(fontSize: 14)),
-            const SizedBox(height: 5),
-            TextField(
-              controller: _amountController,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(
-                hintText: 'الحد الأدنى 50 ج.م',
-                filled: true,
-                fillColor: const Color(0xFF1E1E2C),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            ),
-            const SizedBox(height: 25),
-
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.deepPurple,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-                onPressed: _handleWithdrawSubmit,
-                child: const Text('تأكيد طلب السحب', style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold)),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _handleWithdrawSubmit() {
+  void _submitWithdraw() async {
     final amount = double.tryParse(_amountController.text) ?? 0.0;
-    final number = _numberController.text.trim();
+    final walletNumber = _numberController.text.trim();
 
-    if (number.isEmpty) {
+    if (walletNumber.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('يرجى كتابة رقم المحفظة')));
       return;
     }
-
     if (amount < 50.0) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('الحد الأدنى للسحب هو 50 ج.م')));
       return;
     }
-
     if (amount > widget.balance) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('رصيدك الحالي غير كافٍ')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('رصيدك الفعلي لا يكفي لهذا الطلب')));
       return;
     }
 
@@ -492,55 +433,85 @@ class _WithdrawScreenState extends State<WithdrawScreen> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF1E1E2C),
-        title: const Text('تم إرسال الطلب بنجاح 🚀'),
-        content: Text('تم تسجيل طلب سحب مبلغ $amount ج.م عبر $_selectedMethod وسيتم التحويل خلال 24 ساعة.'),
+        title: const Text('تم تسجيل الطلب بنجاح 🚀'),
+        content: Text('تم خصم $amount ج.م وتسجيل الطلب برقم المحفظة ($walletNumber) عبر $_selectedMethod وسيتم التحويل قريباً.'),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('حسناً', style: TextStyle(color: Colors.greenAccent)),
-          )
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('حسناً', style: TextStyle(color: Colors.greenAccent))),
         ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('طلب سحب الأرصدة'), backgroundColor: const Color(0xFF1E1E2C)),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('رصيدك القابل للسحب:'),
+                    Text('${widget.balance.toStringAsFixed(2)} ج.م', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.greenAccent)),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            DropdownButtonFormField<String>(
+              value: _selectedMethod,
+              decoration: InputDecoration(filled: true, fillColor: const Color(0xFF1E1E2C), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
+              dropdownColor: const Color(0xFF1E1E2C),
+              items: ['فودافون كاش', 'اتصالات كاش', 'أورانج كاش', 'WE Pay', 'Binance USDT'].map((method) {
+                return DropdownMenuItem(value: method, child: Text(method));
+              }).toList(),
+              onChanged: (val) {
+                if (val != null) setState(() => _selectedMethod = val);
+              },
+            ),
+            const SizedBox(height: 15),
+            TextField(
+              controller: _numberController,
+              keyboardType: TextInputType.phone,
+              decoration: InputDecoration(hintText: 'رقم المحفظة / العنوان', filled: true, fillColor: const Color(0xFF1E1E2C), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
+            ),
+            const SizedBox(height: 15),
+            TextField(
+              controller: _amountController,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(hintText: 'المبلغ (الحد الأدنى 50 ج.م)', filled: true, fillColor: const Color(0xFF1E1E2C), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
+            ),
+            const SizedBox(height: 25),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.deepPurple, padding: const EdgeInsets.symmetric(vertical: 16)),
+                onPressed: _submitWithdraw,
+                child: const Text('تأكيد وإرسال الطلب', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              ),
+            )
+          ],
+        ),
       ),
     );
   }
 }
 
-// --- قسم سجل المعاملات ---
 class HistoryScreen extends StatelessWidget {
   const HistoryScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final historyItems = [
-      {'title': 'سحب فودافون كاش', 'amount': '-50.0 ج.م', 'date': 'اليوم 01:15 PM', 'status': 'مقبول ✅', 'color': Colors.greenAccent},
-      {'title': 'إتمام مهمة Gmail', 'amount': '+7.5 ج.م', 'date': 'أمس 04:30 PM', 'status': 'تم الاعتماد', 'color': Colors.blueAccent},
-      {'title': 'إتمام مهمة تليجرام', 'amount': '+2.0 ج.م', 'date': 'منذ يومين', 'status': 'تم الاعتماد', 'color': Colors.blueAccent},
-    ];
-
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('سجل المعاملات'),
-        backgroundColor: const Color(0xFF1E1E2C),
-      ),
-      body: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: historyItems.length,
-        itemBuilder: (context, index) {
-          final item = historyItems[index];
-          return Card(
-            margin: const EdgeInsets.only(bottom: 10),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            child: ListTile(
-              leading: CircleAvatar(
-                backgroundColor: Colors.deepPurple.withOpacity(0.3),
-                child: const Icon(Icons.swap_horiz, color: Colors.white),
-              ),
-              title: Text(item['title'] as String, style: const TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: Text('${item['date']} | ${item['status']}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
-              trailing: Text(item['amount'] as String, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: item['color'] as Color)),
-            ),
-          );
-        },
+      appBar: AppBar(title: const Text('سجل المعاملات'), backgroundColor: const Color(0xFF1E1E2C)),
+      body: const Center(
+        child: Text('لا توجد سحوبات سابقة مكتملة حتى الآن', style: TextStyle(color: Colors.grey)),
       ),
     );
   }
