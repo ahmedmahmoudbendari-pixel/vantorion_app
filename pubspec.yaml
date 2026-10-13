@@ -1,5 +1,5 @@
 name: vantorion_app
-description: Vantorion Android Application
+description: "Vantorion Flutter App"
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -9,8 +9,11 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  cupertino_icons: ^1.0.2
+  cupertino_icons: ^1.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
 
 flutter:
   uses-material-design: true
-
