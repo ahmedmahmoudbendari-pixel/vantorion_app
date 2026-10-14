@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() async {
@@ -74,7 +73,6 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passController = TextEditingController();
-  bool _isRegistering = false;
 
   Future<void> _handleAuth() async {
     final email = _emailController.text.trim();
@@ -144,11 +142,8 @@ class _LoginScreenState extends State<LoginScreen> {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
                 onPressed: _handleAuth,
-                child: Text(_isRegistering ? 'إنشاء حساب جديد' : 'تسجيل الدخول', style: const TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold)),
+                child: const Text('تسجيل الدخول / إنشاء حساب', style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold)),
               ),
-              TextButton(
-                child: Text(_isRegistering ? 'لديك حساب بالفعل؟ سجل دخولك' : 'حساب جديد؟ انقر هنا للإنشاء', style: const TextStyle(color: Colors.grey)),
-              )
             ],
           ),
         ),
@@ -379,10 +374,10 @@ class TasksScreen extends StatelessWidget {
                 onPressed: () {
                   onTaskCompleted(task['reward'] as double);
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('تم إنهاء المهمة وإضافة ${task["reward"]} ج.م إلى حسابك!')),
+                    SnackBar(content: Text('تم إنهاء المهمة وإضافة ${task['reward']} ج.م إلى حسابك!')),
                   );
                 },
-                child: Text('+${task["reward"]} ج.م', style: const TextStyle(color: Colors.greenAccent)),
+                child: Text('+${task['reward']} ج.م', style: const TextStyle(color: Colors.greenAccent)),
               ),
             ),
           );
